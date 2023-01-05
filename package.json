@@ -20,7 +20,6 @@
     "vite-plugin-cross-origin-isolation": "^0.1.6"
   },
   "dependencies": {
-    "@ffmpeg/core": "^0.11.0",
     "@ffmpeg/ffmpeg": "^0.11.6",
     "svelte-file-dropzone": "^1.0.0"
   }
