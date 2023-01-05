@@ -1,104 +1,100 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { createFFmpeg, fetchFile } from "@ffmpeg/ffmpeg";
+	import InputVideoPlayer from './components/InputVideoPlayer.svelte';
 
-  let ready = false;
-  let progress = 0;
+	import { onMount } from 'svelte';
+	import { createFFmpeg, fetchFile } from '@ffmpeg/ffmpeg';
+	import Dropzone from 'svelte-file-dropzone';
 
-  const ffmpeg = createFFmpeg({
-    log: true,
-    progress: ({ ratio }) => {
-      progress = ratio;
-    },
-  });
+	let ffmpegReady = false;
+	let ffmpegIsWorking = false;
+	let inputVideo;
+	let selectedStart;
+	let selectedEnd;
+	let trimmedVideo;
 
-  const load = async () => {
-    await ffmpeg.load();
-    ready = true;
-  };
+	const ffmpeg = createFFmpeg({
+		log: true,
+		corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js',
+		mainName: 'main',
+		progress: ({ ratio }) => {
+			if (ratio === 1) {
+				ffmpegIsWorking = false;
+			}
+		}
+	});
 
-  onMount(load);
+	function load() {
+		ffmpeg.load().then(() => {
+			ffmpegReady = true;
+		});
+	}
 
-  let videos;
-  let gif;
-  let trimmedVideo;
+	onMount(load);
 
-  const convertToGif = async () => {
-    // Write the file to memory
-    ffmpeg.FS("writeFile", "test.mp4", await fetchFile(videos[0]));
+	function handleFilesSelect(e) {
+		if (e.detail.fileRejections.length > 0) {
+			alert('Please select a video file');
+			return;
+		}
+		inputVideo = e.detail.acceptedFiles[0];
+	}
 
-    // Run the FFMpeg command
-    await ffmpeg.run("-i", "test.mp4", "-t", "5", "-ss", "0", "out.gif");
+	function resetVideo() {
+		inputVideo = null;
+	}
 
-    // Read the result
-    const data = ffmpeg.FS("readFile", "out.gif");
+	async function trimVideo() {
+		if (selectedStart >= selectedEnd) {
+			alert('Your start time must be before your end time');
+			return;
+		}
 
-    // Create a URL
-    gif = URL.createObjectURL(new Blob([data.buffer], { type: "image/gif" }));
-  };
+		ffmpegIsWorking = true;
 
-  const trimVideo = async () => {
-    // Write the file to memory
-    ffmpeg.FS("writeFile", "test.mp4", await fetchFile(videos[0]));
-
-    // Run the FFMpeg command
-    await ffmpeg.run(
-      "-i",
-      "test.mp4",
-      "-t",
-      "10",
-      "-ss",
-      "0",
-      "-c:v",
-      "copy",
-      "-c:a",
-      "copy",
-      "out.mp4"
-    );
-
-    // Read the result
-    const data = ffmpeg.FS("readFile", "out.mp4");
-
-    // Create a URL
-    trimmedVideo = URL.createObjectURL(
-      new Blob([data.buffer], { type: "video/mp4" })
-    );
-  };
+		const extension = inputVideo.name.split('.').pop();
+		ffmpeg.FS('writeFile', `input.${extension}`, await fetchFile(inputVideo));
+		await ffmpeg.run('-i', `input.${extension}`, '-to', selectedEnd.toString(), '-ss', selectedStart.toString(), '-c:v', 'copy', '-c:a', 'copy', `out.${extension}`);
+		const data = ffmpeg.FS('readFile', `out.${extension}`);
+		trimmedVideo = URL.createObjectURL(new Blob([data.buffer], { type: 'video/' + extension || 'mp4' }));
+	}
 </script>
 
 <main>
-  <h1>Video cutter</h1>
-  {#if ready}
-    <p>
-      {#if progress > 0}
-        Working... {Math.round(progress * 1000) / 10}
-      {:else}
-        Ready to go!
-      {/if}
-    </p>
-    <div class="flex-col">
-      <input type="file" accept="video/*" bind:files={videos} />
-      {#if videos}
-        <video controls width="400" src={URL.createObjectURL(videos[0])} />
-        <button on:click={convertToGif}>Convert to GIF</button>
-        <button on:click={trimVideo}>Trim video</button>
-        {#if trimmedVideo}
-          <video controls width="400" src={trimmedVideo} />
-        {/if}
-        {#if gif}
-          <img src={gif} width="400" />
-        {/if}
-      {/if}
-    </div>
-  {:else}
-    <p>Loading...</p>
-  {/if}
+	<h1>Video cutter</h1>
+	{#if ffmpegReady}
+		{#if ffmpegIsWorking}
+			<p>Working...</p>
+		{:else}
+			<p>Ready to go!</p>
+		{/if}
+
+		<div class="flex-col">
+			{#if inputVideo}
+				<h3>Input Video</h3>
+				<InputVideoPlayer {inputVideo} bind:selectedStart bind:selectedEnd />
+				<div class="video-action-buttons">
+					<button on:click={resetVideo} disabled={ffmpegIsWorking}>Choose other video</button>
+					<button on:click={trimVideo} disabled={ffmpegIsWorking}>Trim video</button>
+				</div>
+				{#if trimmedVideo}
+					<h3>Trimmed Video</h3>
+					<!-- svelte-ignore a11y-media-has-caption -->
+					<video controls src={trimmedVideo} />
+				{/if}
+			{:else}
+				<p>To begin, select a video:</p>
+				<Dropzone on:drop={handleFilesSelect} accept="video/*" multiple={false} containerClasses="dropzone-custom" disableDefaultStyles={true} />
+			{/if}
+		</div>
+	{:else}
+		<p>Loading...</p>
+	{/if}
 </main>
 
 <style>
-  .flex-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
+	.flex-col {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+	}
 </style>
